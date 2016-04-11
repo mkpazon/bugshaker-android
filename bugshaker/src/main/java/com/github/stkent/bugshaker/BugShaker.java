@@ -1,13 +1,13 @@
 /**
  * Copyright 2016 Stuart Kent
- *
+ * <p/>
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License.
- *
+ * <p/>
  * You may obtain a copy of the License at
- *
+ * <p/>
  * http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p/>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
  * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
@@ -58,11 +58,11 @@ public final class BugShaker implements ShakeDetector.Listener {
     private String[] emailAddresses;
     private String emailSubjectLine;
     private AlertDialogType alertDialogType = AlertDialogType.NATIVE;
-    private boolean ignoreFlagSecure        = false;
-    private boolean loggingEnabled          = false;
+    private boolean ignoreFlagSecure = false;
+    private boolean loggingEnabled = false;
 
     // Instance configuration state:
-    private boolean assembled      = false;
+    private boolean assembled = false;
     private boolean startAttempted = false;
 
     private final SimpleActivityLifecycleCallback simpleActivityLifecycleCallback
@@ -221,12 +221,34 @@ public final class BugShaker implements ShakeDetector.Listener {
                 getAlertDialogProvider(),
                 logger);
 
-        assembled = true;
+        if (emailCapabilitiesProvider.canSendEmails()) {
+            application.registerActivityLifecycleCallbacks(simpleActivityLifecycleCallback);
+            assembled = true;
+        } else {
+            logger.e("Error in assemble: device cannot send emails.");
+        }
+
         return this;
     }
 
+
     /**
-     * (Required) Start listening for device shaking. You MUST call <code>assemble</code> before
+     * Manually trigger bug reporting. You MUST call <code>assemble</code> before
+     * calling this method.
+     */
+    public void trigger() {
+        if (!assembled) {
+            throw new IllegalStateException("You MUST call assemble before calling trigger.");
+        }
+
+        feedbackEmailFlowManager.startFlowIfNeeded(
+                emailAddresses,
+                emailSubjectLine,
+                ignoreFlagSecure);
+    }
+
+    /**
+     * Start listening for device shaking. You MUST call <code>assemble</code> before
      * calling this method.
      */
     public void start() {
@@ -241,22 +263,16 @@ public final class BugShaker implements ShakeDetector.Listener {
             return;
         }
 
-        if (emailCapabilitiesProvider.canSendEmails()) {
-            application.registerActivityLifecycleCallbacks(simpleActivityLifecycleCallback);
+        final SensorManager sensorManager
+                = (SensorManager) application.getSystemService(SENSOR_SERVICE);
+        final ShakeDetector shakeDetector = new ShakeDetector(this);
 
-            final SensorManager sensorManager
-                    = (SensorManager) application.getSystemService(SENSOR_SERVICE);
-            final ShakeDetector shakeDetector = new ShakeDetector(this);
+        final boolean didStart = shakeDetector.start(sensorManager);
 
-            final boolean didStart = shakeDetector.start(sensorManager);
-
-            if (didStart) {
-                logger.d("Shake detection successfully started!");
-            } else {
-                logger.e("Error starting shake detection: hardware does not support detection.");
-            }
+        if (didStart) {
+            logger.d("Shake detection successfully started!");
         } else {
-            logger.e("Error starting shake detection: device cannot send emails.");
+            logger.e("Error starting shake detection: hardware does not support detection.");
         }
 
         startAttempted = true;
@@ -266,10 +282,7 @@ public final class BugShaker implements ShakeDetector.Listener {
     public void hearShake() {
         logger.d("Shake detected!");
 
-        feedbackEmailFlowManager.startFlowIfNeeded(
-                emailAddresses,
-                emailSubjectLine,
-                ignoreFlagSecure);
+        trigger();
     }
 
     /**
